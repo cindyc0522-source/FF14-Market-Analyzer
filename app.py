@@ -4,9 +4,9 @@ import msgpack
 import os
 import time
 
-# --- 網頁外觀設定 ---
-st.set_page_config(page_title="FF14 繁中服大亨", page_icon="💰", layout="wide")
-st.title("🌟 FF14 繁中服市場分析機 (視覺增強版)")
+# --- 網頁設定 ---
+st.set_page_config(page_title="FF14 繁中服市場分析機", page_icon="💰", layout="wide")
+st.title("🌟 FF14 繁中服市場分析機")
 
 # --- 載入資料庫 ---
 @st.cache_data
@@ -32,13 +32,6 @@ def load_data():
 name_to_item_id, item_id_to_name = load_data()
 all_item_names = list(name_to_item_id.keys())
 
-# --- 輔助功能：計算圖標網址 ---
-def get_icon_url(item_id):
-    # FF14 圖標網址邏輯：ID 補足 6 位數，前 3 位加 000 作為資料夾
-    item_id_str = str(item_id).zfill(6)
-    folder = item_id_str[:3] + "000"
-    return f"https://xivapi.com/i/{folder}/{item_id_str}.png"
-
 # --- 查價功能 ---
 def get_lowest_price_info(item_id, dc_name):
     url = f"https://universalis.app/api/v2/{dc_name}/{item_id}?listings=1"
@@ -46,119 +39,107 @@ def get_lowest_price_info(item_id, dc_name):
         res = requests.get(url).json()
         if 'listings' in res and len(res['listings']) > 0:
             best = res['listings'][0]
-            return best['pricePerUnit'], best.get('worldName', '未知')
-    except: pass
-    return 0, "無貨"
+            world = best.get('worldName', '本服')
+            return best['pricePerUnit'], world
+        return 0, "無貨"
+    except:
+        return 0, "錯誤"
 
-tab1, tab2 = st.tabs(["🔍 智慧搜尋與深度分析", "📈 批次快速排行榜"])
+tab1, tab2 = st.tabs(["🔍 單品深度分析", "📈 市場海選排行榜"])
 
-# === 分頁一：視覺化搜尋 ===
+# === 分頁一：模糊搜尋與分析 ===
 with tab1:
-    st.markdown("### 📦 道具關鍵字搜尋")
-    col_a, col_b = st.columns([1, 2])
+    st.markdown("### 🔍 裝備關鍵字搜尋")
+    col_s1, col_s2 = st.columns([1, 2])
     
-    with col_a:
-        dc = st.selectbox("🌐 選擇大區：", ["陸行鳥", "莫古力", "貓區", "豆豆柴"], key="s_dc")
-        keyword = st.text_input("📝 請輸入關鍵字：", "雨衣")
+    with col_s1:
+        selected_dc = st.selectbox("🌐 選擇大區：", ["陸行鳥", "莫古力", "貓區", "豆豆柴"], key="single_dc")
+        keyword = st.text_input("📝 輸入關鍵字 (例如：短上衣)：", "雨衣")
     
-    # 模糊搜尋
-    matches = [name for name in all_item_names if keyword in name][:15] # 限制前15個，效能較好
+    # 👇 模糊搜尋邏輯：找出所有包含關鍵字的名字 👇
+    matches = [name for name in all_item_names if keyword in name]
     
-    if keyword and matches:
-        search_results = []
-        for m_name in matches:
-            m_id = name_to_item_id[m_name]
-            search_results.append({
-                "圖標": get_icon_url(m_id),
-                "物品名稱": m_name,
-                "ID": m_id
-            })
-        
-        with col_b:
-            st.write(f"📡 找到 {len(matches)} 個匹配項：")
-            # 👇 這裡就是帶圖片的表格設定 👇
-            st.dataframe(
-                search_results,
-                column_config={
-                    "圖標": st.column_config.ImageColumn("圖標", help="道具圖示"),
-                    "物品名稱": st.column_config.TextColumn("名稱"),
-                },
-                use_container_width=True,
-                hide_index=True
-            )
-            
-        st.markdown("---")
-        target_item = st.selectbox("🎯 請從上方結果選擇一個進行深度分析：", matches)
-        
-        if st.button("查看詳細報報 🚀", type="primary"):
-            tid = name_to_item_id[target_item]
-            try:
-                # 取得配方與來源
-                i_res = requests.get(f"https://xivapi.com/Item/{tid}").json()
-                links = i_res.get('GameContentLinks', {})
-                recipes = links.get('Recipe', {}).get('ItemResult', [])
-                if not isinstance(recipes, list): recipes = [recipes]
-                
-                if not recipes:
-                    st.warning("此物品不可製作，來源雷達：")
-                    msgs = []
-                    if 'GilShopItem' in links: msgs.append("💰 商店販售")
-                    if 'SpecialShop' in links: msgs.append("🔄 兌換/特殊商店")
-                    if 'InstanceContent' in links: msgs.append("⚔️ 副本掉落")
-                    st.info("、".join(msgs) if msgs else "未知來源")
-                    
-                    p, w = get_lowest_price_info(tid, dc)
-                    st.success(f"市場最低價：{p} G (伺服器：{w})")
-                else:
-                    # 製作分析
-                    r_res = requests.get(f"https://xivapi.com/Recipe/{recipes[0]}").json()
-                    mats = []
-                    cost = 0
-                    for i in range(10):
-                        ing = r_res.get(f"ItemIngredient{i}")
-                        if ing:
-                            iid = ing['ID']
-                            amt = r_res.get(f"AmountIngredient{i}")
-                            p, w = get_lowest_price_info(iid, dc)
-                            cost += p * amt
-                            mats.append({
-                                "圖標": get_icon_url(iid),
-                                "材料名稱": item_id_to_name.get(iid, ing['Name']),
-                                "數量": amt,
-                                "單價": p,
-                                "總計": p * amt,
-                                "推薦購買": w
-                            })
-                    
-                    price, world = get_lowest_price_info(tid, dc)
-                    m1, m2, m3 = st.columns(3)
-                    m1.metric(f"成品售價 ({world})", f"{price} G")
-                    m2.metric("材料總成本", f"{cost} G")
-                    m3.metric("預期利潤", f"{price - cost} G", delta=f"{price - cost} G")
-                    
-                    st.dataframe(
-                        mats,
-                        column_config={"圖標": st.column_config.ImageColumn()},
-                        use_container_width=True,
-                        hide_index=True
-                    )
-            except:
-                st.error("API 連線繁忙，請再試一次。")
-    elif keyword:
-        st.error("找不到任何道具。")
+    with col_s2:
+        if keyword:
+            if matches:
+                target_item = st.selectbox(f"🎯 找到 {len(matches)} 個結果，請選擇：", matches)
+            else:
+                st.error("❌ 找不到包含該關鍵字的道具。")
+                target_item = None
+        else:
+            st.info("請先在左側輸入關鍵字。")
+            target_item = None
 
-# === 分頁二：快速掃描 ===
+    if target_item and st.button("啟動深度分析 🚀", type="primary"):
+        item_id = name_to_item_id[target_item]
+        try:
+            item_url = f"https://xivapi.com/Item/{item_id}"
+            item_res = requests.get(item_url).json()
+            links = item_res.get('GameContentLinks', {})
+            
+            # 檢查配方
+            recipes = links.get('Recipe', {}).get('ItemResult', [])
+            if not isinstance(recipes, list): recipes = [recipes]
+            
+            if not recipes:
+                st.warning(f"⚠️ 【{target_item}】不可製作")
+                source_msgs = []
+                if 'GilShopItem' in links: source_msgs.append("💰 NPC 商店")
+                if 'SpecialShop' in links: source_msgs.append("🔄 特殊商店/兌換")
+                if 'InstanceContent' in links: source_msgs.append("⚔️ 副本掉落")
+                if 'Achievement' in links: source_msgs.append("🏆 成就獎勵")
+                if source_msgs: st.info("📡 來源偵測：" + "、".join(source_msgs))
+                
+                price, world = get_lowest_price_info(item_id, selected_dc)
+                if price > 0: st.success(f"💡 交易板最低：{price} G ({world})")
+            else:
+                recipe_id = recipes[0]
+                r_url = f"https://xivapi.com/Recipe/{recipe_id}"
+                r_data = requests.get(r_url).json()
+                
+                ingredients = []
+                for i in range(10):
+                    ing = r_data.get(f"ItemIngredient{i}")
+                    if ing:
+                        iid = ing['ID']
+                        ingredients.append({
+                            "id": iid, 
+                            "name": item_id_to_name.get(iid, ing['Name']), 
+                            "amt": r_data.get(f"AmountIngredient{i}")
+                        })
+                
+                with st.spinner("🛒 正在跑遍交易板..."):
+                    price, world = get_lowest_price_info(item_id, selected_dc)
+                    total_cost = 0
+                    details = []
+                    for ing in ingredients:
+                        p, w = get_lowest_price_info(ing['id'], selected_dc)
+                        total_cost += p * ing['amt']
+                        details.append({"材料名稱": ing['name'], "數量": ing['amt'], "單價": p, "最便宜": w})
+                    profit = price - total_cost
+
+                st.markdown("---")
+                m1, m2, m3 = st.columns(3)
+                m1.metric(f"成品售價 ({world})", f"{price} G")
+                m2.metric("材料成本", f"{total_cost} G")
+                m3.metric("預期利潤", f"{profit} G", delta=f"{profit} G")
+                st.dataframe(details, use_container_width=True)
+        except:
+            st.error("連線超時，請重試。")
+
+# === 分頁二：排行榜 (維持原樣) ===
 with tab2:
-    st.markdown("### 📈 快速批次查價")
+    st.markdown("### 📈 批次掃描排行榜")
     with st.form("b_form"):
-        bdc = st.selectbox("大區", ["陸行鳥", "莫古力", "貓區", "豆豆柴"])
-        txt = st.text_area("清單：", "雨衣\n顯貴短上衣", height=150)
-        if st.form_submit_button("批次查價"):
-            items = [i.strip() for i in txt.split('\n') if i.strip()]
+        batch_dc = st.selectbox("🌐 選擇大區：", ["陸行鳥", "莫古力", "貓區", "豆豆柴"], key="b_dc")
+        user_input = st.text_area("📋 清單：", "雨衣\n顯貴短上衣\n古典大劍", height=150)
+        if st.form_submit_button("批次掃描 🚀"):
+            items = [i.strip() for i in user_input.split('\n') if i.strip()]
             res = []
-            for n in items:
-                if n in name_to_item_id:
-                    iid = name_to_item_id[n]
-                    p, w = get_lowest_price_info(iid, bdc)
-                    res.append({"圖標": get_icon_url(iid), "名稱": n, "價格": p, "伺服器": w})
-            st.dataframe(res, column_config={"圖標": st.column_config.ImageColumn()}, use_container_width=True)
+            pb = st.progress(0)
+            for idx, name in enumerate(items):
+                if name in name_to_item_id:
+                    p, _ = get_lowest_price_info(name_to_item_id[name], batch_dc)
+                    res.append({"物品": name, "最低售價": p})
+                pb.progress((idx + 1) / len(items))
+            st.dataframe(res, use_container_width=True)
