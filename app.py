@@ -50,7 +50,7 @@ with tab1:
         selected_dc = st.selectbox("🌐 選擇大區：", ["陸行鳥", "莫古力", "貓區", "豆豆柴"])
     with col2:
         single_item_input = st.text_input("📦 輸入單一物品名稱：", "雨衣")
-        
+        
     if st.button("單品分析啟動 🚀", type="primary"):
         if single_item_input not in name_to_item_id:
             st.error(f"❌ 找不到【{single_item_input}】")
@@ -60,11 +60,11 @@ with tab1:
                 item_url = f"https://xivapi.com/Item/{item_id}"
                 item_res = requests.get(item_url).json()
                 links = item_res.get('GameContentLinks', {})
-                
+                
                 # 檢查配方
                 recipes = links.get('Recipe', {}).get('ItemResult', [])
                 if not isinstance(recipes, list): recipes = [recipes]
-                
+                
                 if not recipes:
                     st.warning("⚠️ 此物品不可製作")
                     source_msgs = []
@@ -74,7 +74,7 @@ with tab1:
                     if 'Achievement' in links: source_msgs.append("🏆 成就獎勵")
                     if source_msgs:
                         st.info("📡 來源偵測：" + "、".join(source_msgs))
-                        
+                        
                     price, world = get_lowest_price_info(item_id, selected_dc)
                     if price > 0:
                         st.success(f"💡 交易板最低：{price} G ({world})")
@@ -87,7 +87,7 @@ with tab1:
                         ing = r_data.get(f"ItemIngredient{i}")
                         if ing:
                             ingredients.append({"id": ing['ID'], "name": item_id_to_name.get(ing['ID'], ing['Name']), "amt": r_data.get(f"AmountIngredient{i}")})
-                    
+                    
                     price, world = get_lowest_price_info(item_id, selected_dc)
                     total_cost = 0
                     details = []
@@ -95,7 +95,7 @@ with tab1:
                         p, w = get_lowest_price_info(ing['id'], selected_dc)
                         total_cost += p * ing['amt']
                         details.append({"材料": ing['name'], "數量": ing['amt'], "單價": p, "最便宜": w})
-                    
+                    
                     st.markdown("---")
                     st.metric("利潤", f"{price - total_cost} G", delta=f"{price - total_cost} G")
                     st.dataframe(details, use_container_width=True)
