@@ -214,20 +214,31 @@ with tab1:
                         world = "無"
 
                     total_cost = 0
-                    details = []
+details = []
 
-                    for ing in ingredients:
+for ing in ingredients:
 
-                        p, w = get_lowest_price(ing['id'], selected_dc)
+    market = get_market_listings(ing['id'], selected_dc, limit=3)
 
-                        total_cost += p * ing['amt']
+    if market:
 
-                        details.append({
-                            "材料名稱": ing['name'],
-                            "需求數量": ing['amt'],
-                            "市場單價": p,
-                            "來源": w
-                        })
+        lowest_price = market[0]["單價"]
+        total_cost += lowest_price * ing['amt']
+
+        market_text = " / ".join(
+            [f"{m['單價']}×{m['數量']}" for m in market]
+        )
+
+    else:
+
+        lowest_price = 0
+        market_text = "無"
+
+    details.append({
+        "材料": ing['name'],
+        "需求": ing['amt'],
+        "市場": market_text
+    })
 
                     profit = price - total_cost
 
