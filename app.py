@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import msgpack
 import os
+import zhconv  # 👈 新增的繁簡轉換引擎
 
 # --- 網頁設定 ---
 st.set_page_config(page_title="FF14 繁中服市場分析機", page_icon="💰", layout="wide")
@@ -97,6 +98,19 @@ with tab1:
 
     if target_item and st.button("啟動分析 🚀"):
         item_id = name_to_item_id[target_item]
+        
+        # 👇 核心修復：在背景瞬間把繁體轉成簡體 👇
+        cn_target_item = zhconv.convert(target_item, 'zh-cn')
+
+        # ✨ UX 優化：不管能不能做，百科傳送門都直接顯示在最上面 ✨
+        st.markdown(f"#### 📚 【{target_item}】詳細資訊與位置查詢")
+        col_w1, col_w2 = st.columns(2)
+        with col_w1:
+            st.link_button("📖 前往【灰機 Wiki】查看中文攻略", f"https://ff14.huijiwiki.com/wiki/物品:{cn_target_item}", use_container_width=True)
+        with col_w2:
+            st.link_button("🧰 前往【Garland Tools】查看地圖", f"https://www.garlandtools.org/db/#item/{item_id}", use_container_width=True)
+        
+        st.markdown("---") # 畫一條分隔線
 
         try:
             item_res = requests.get(f"https://xivapi.com/Item/{item_id}").json()
@@ -108,9 +122,8 @@ with tab1:
 
             # ===== 不可製作 =====
             if not recipes:
-                st.warning(f"⚠️ 【{target_item}】為不可製作物品！")
+                st.warning(f"⚠️ 這是不可製作物品！")
                 
-                # ✨ 來源推測 ✨
                 sources = []
                 if 'GilShopItem' in links: sources.append("💰 NPC 金幣商店販售")
                 if 'SpecialShop' in links: sources.append("🎟️ 特殊代幣 / 神典石兌換")
@@ -122,15 +135,6 @@ with tab1:
                 source_text = "、".join(sources) if sources else "❓ 怪物掉落 / 任務獎勵 / 寶箱或未知來源"
                 st.info(f"💡 **系統推測取得管道：** {source_text}")
 
-                # ✨ 百科傳送門 ✨
-                st.markdown("#### 📚 詳細掉落與商人位置查詢")
-                col_w1, col_w2 = st.columns(2)
-                with col_w1:
-                    st.link_button("📖 前往【灰機 Wiki】查看中文攻略", f"https://ff14.huijiwiki.com/wiki/物品:{target_item}", use_container_width=True)
-                with col_w2:
-                    st.link_button("🧰 前往【Garland Tools】查看地圖", f"https://www.garlandtools.org/db/#item/{item_id}", use_container_width=True)
-
-                # 市場前5筆
                 market = get_market_listings(item_id, selected_dc)
                 if market:
                     st.markdown("### 💰 市場前5筆")
@@ -142,7 +146,6 @@ with tab1:
             else:
                 r_data = requests.get(f"https://xivapi.com/Recipe/{recipes[0]}").json()
                 
-                # ✨ 抓取職業與等級 ✨
                 job_id = r_data.get("ClassJob", {}).get("ID")
                 job_name = JOB_MAP.get(job_id, "未知職業")
                 base_level = r_data.get("RecipeLevelTable", {}).get("ClassJobLevel", "?")
@@ -191,7 +194,6 @@ with tab1:
 
                     profit = price - total_cost
 
-                st.markdown("---")
                 c1, c2, c3 = st.columns(3)
                 c1.metric("成品單價", f"{price} G ({short_world(world)})")
                 c2.metric("材料成本", f"{total_cost} G")
