@@ -84,11 +84,13 @@ tab1, tab2 = st.tabs(["🔍 單品深度分析", "📈 市場海選排行榜"])
 # =============================
 with tab1:
     st.markdown("### 🔍 裝備關鍵字搜尋")
-    col_s1, col_s2 = st.columns([1, 2])
+    
+    # 🎯 隱藏大區選單，將後台預設值寫死為「陸行鳥」大區 (若想換大區，直接改這行即可)
+    selected_dc = "陸行鳥"
 
+    col_s1, col_s2 = st.columns([1, 2])
     with col_s1:
-        selected_dc = st.selectbox("🌐 選擇大區：", ["陸行鳥", "莫古力", "貓區", "豆豆柴"])
-        keyword = st.text_input("📝 輸入關鍵字：", "古典大劍") # 換成一個有很多半成品的裝備來測試
+        keyword = st.text_input("📝 輸入關鍵字：", "古典大劍")
 
     matches = [name for name in all_item_names if keyword in name]
 
@@ -189,7 +191,6 @@ with tab1:
                             "is_craftable": False
                         })
 
-                # ⚠️ 因為要進行第二層深度掃描，這會多花幾秒鐘
                 with st.spinner("🛒 深入解析素材來源、半成品配方與市場價格中...(約需5~10秒)"):
                     market = get_market_listings(item_id, selected_dc)
                     if market:
@@ -203,7 +204,6 @@ with tab1:
                     details = []
 
                     for ing in ingredients:
-                        # 1. 抓市場價格
                         ing_market = get_market_listings(ing['id'], selected_dc, 3)
                         if ing_market:
                             lowest_price = ing_market[0]["單價"]
@@ -213,7 +213,6 @@ with tab1:
                         else:
                             market_text = "無"
 
-                        # 2. 抓素材取得管道 & 判斷是否為半成品
                         ing_source_text = "❓ 未知"
                         try:
                             ing_item_res = requests.get(f"https://xivapi.com/Item/{ing['id']}").json()
@@ -222,7 +221,6 @@ with tab1:
                             if 'GilShopItem' in i_links: i_sources.append("💰 NPC")
                             if 'GatheringItem' in i_links: i_sources.append("⛏️ 採集")
                             
-                            # ✨ 判斷是否可以製作 (抓出子配方)
                             sub_recipes_ids = i_links.get('Recipe', {}).get('ItemResult', [])
                             if sub_recipes_ids:
                                 i_sources.append("🛠️ 製作")
@@ -230,9 +228,8 @@ with tab1:
                                 if not isinstance(sub_recipes_ids, list):
                                     sub_recipes_ids = [sub_recipes_ids]
                                 
-                                # ✨ 第二層深度掃描：抓取半成品的配方和底層材料價格
                                 sub_r_data = requests.get(f"https://xivapi.com/Recipe/{sub_recipes_ids[0]}").json()
-                                sub_output_amt = sub_r_data.get("AmountResult", 1) # 半成品一次搓幾個出來
+                                sub_output_amt = sub_r_data.get("AmountResult", 1)
                                 
                                 for j in range(10):
                                     sub_ing = sub_r_data.get(f"ItemIngredient{j}")
@@ -255,7 +252,6 @@ with tab1:
                                             "單次需求": sub_amt,
                                             "最低單價": sub_market_text
                                         })
-                                # 換算成單個半成品的成本
                                 ing['sub_total_cost'] = int(ing['sub_total_cost'] / sub_output_amt)
 
                             ing_source_text = "、".join(i_sources) if i_sources else "❓ 未知"
@@ -272,7 +268,6 @@ with tab1:
 
                     profit = price - total_cost
 
-                # === 頂部總結儀表板 ===
                 c1, c2, c3 = st.columns(3)
                 c1.metric("成品單價", f"{price} G ({short_world(world)})")
                 c2.metric("材料全買成本", f"{total_cost} G")
@@ -287,7 +282,6 @@ with tab1:
                     }
                 )
 
-                # ✨ 全新區塊：半成品自製 vs 購買 決策系統 ✨
                 st.markdown("---")
                 st.markdown("### 🛠️ 半成品評估：自製 vs 購買")
                 has_sub_crafts = False
@@ -305,7 +299,6 @@ with tab1:
                         else:
                             status_msg = f"💰 直接買更省 (省 {craft_price - buy_price} G)"
                             
-                        # 這就是你想要的「隱藏表格 (Expander)」
                         with st.expander(f"📦 {ing['name']} ｜ 市場單價: {buy_price} G ｜ 自製成本: {craft_price} G ➡️ {status_msg}"):
                             st.dataframe(ing['sub_details'], use_container_width=True, hide_index=True)
                             
@@ -320,8 +313,11 @@ with tab1:
 # =============================
 with tab2:
     st.markdown("### 📈 批次掃描")
+    
+    # 🎯 同樣隱藏大區選單，將後台預設值寫死為「陸行鳥」大區
+    dc = "陸行鳥"
+    
     with st.form("form"):
-        dc = st.selectbox("大區", ["陸行鳥", "莫古力", "貓區", "豆豆柴"])
         text = st.text_area("輸入清單", "雨衣\n顯貴短上衣")
         if st.form_submit_button("掃描"):
             items = [i.strip() for i in text.split('\n') if i.strip()]
