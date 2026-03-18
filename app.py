@@ -81,7 +81,7 @@ with tab1:
 
     with col_s1:
         selected_dc = st.selectbox("🌐 選擇大區：", ["陸行鳥", "莫古力", "貓區", "豆豆柴"])
-        keyword = st.text_input("📝 輸入關鍵字：", "小黑夸爾")
+        keyword = st.text_input("📝 輸入關鍵字：", "雨衣")
 
     matches = [name for name in all_item_names if keyword in name]
 
@@ -99,7 +99,7 @@ with tab1:
     if target_item and st.button("啟動分析 🚀"):
         item_id = name_to_item_id[target_item]
         
-        # 👇 終極修復：向國服專屬資料庫 (Cafemaker) 請求最精準的官方簡中名 👇
+        # 抓取國服真名 (防地雷)
         try:
             cn_api_url = f"https://cafemaker.wakingsands.com/Item/{item_id}?columns=Name"
             cn_res = requests.get(cn_api_url, timeout=3).json()
@@ -109,25 +109,27 @@ with tab1:
 
         if official_cn_name:
             cn_target_item = official_cn_name
-            # ✨ 如果成功抓到真名，網頁右下角會跳出小通知！ ✨
-            st.toast(f"✅ 已成功轉換為國服真名：{cn_target_item}", icon="🇨🇳")
         else:
-            # 如果國服 API 剛好維修沒抓到，再用翻譯蒟蒻當備用方案硬翻
             cn_target_item = zhconv.convert(target_item, 'zh-cn')
 
-        st.markdown(f"#### 📚 【{target_item}】詳細資訊與位置查詢")
-        col_w1, col_w2 = st.columns(2)
-        with col_w1:
-            st.link_button(f"📖 前往【灰機 Wiki】查看中文攻略", f"https://ff14.huijiwiki.com/wiki/物品:{cn_target_item}", use_container_width=True)
-        with col_w2:
-            st.link_button("🧰 前往【Garland Tools】查看地圖", f"https://www.garlandtools.org/db/#item/{item_id}", use_container_width=True)
-        
-        st.markdown("---")
-
         try:
+            # 📚 連線圖書館獲取所有細節
             item_res = requests.get(f"https://xivapi.com/Item/{item_id}").json()
             links = item_res.get('GameContentLinks', {})
             recipes = links.get('Recipe', {}).get('ItemResult', [])
+            
+            # ✨ 新增：抓取主要物品的圖示 ✨
+            icon_path = item_res.get('Icon')
+            icon_html = f"<img src='https://xivapi.com{icon_path}' width='36' style='vertical-align: middle; border-radius: 6px; margin-right: 8px;'>" if icon_path else ""
+
+            st.markdown(f"#### {icon_html}📚 【{target_item}】詳細資訊與位置查詢", unsafe_allow_html=True)
+            col_w1, col_w2 = st.columns(2)
+            with col_w1:
+                st.link_button(f"📖 前往【灰機 Wiki】查看中文攻略", f"https://ff14.huijiwiki.com/wiki/物品:{cn_target_item}", use_container_width=True)
+            with col_w2:
+                st.link_button("🧰 前往【Garland Tools】查看地圖", f"https://www.garlandtools.org/db/#item/{item_id}", use_container_width=True)
+            
+            st.markdown("---")
 
             if not isinstance(recipes, list):
                 recipes = [recipes]
@@ -171,10 +173,13 @@ with tab1:
                     ing = r_data.get(f"ItemIngredient{i}")
                     if ing:
                         iid = ing['ID']
+                        # ✨ 新增：抓取材料的圖示 ✨
+                        ing_icon = f"https://xivapi.com{ing['Icon']}" if 'Icon' in ing else None
                         ingredients.append({
                             "id": iid,
                             "name": item_id_to_name.get(iid, ing['Name']),
-                            "amt": r_data.get(f"AmountIngredient{i}")
+                            "amt": r_data.get(f"AmountIngredient{i}"),
+                            "icon": ing_icon
                         })
 
                 with st.spinner("🛒 讀取市場中..."):
@@ -199,6 +204,7 @@ with tab1:
                             market_text = "無"
 
                         details.append({
+                            "圖示": ing['icon'], # 👈 把圖示放進表格資料裡
                             "材料": ing['name'],
                             "需求": ing['amt'],
                             "市場前3筆": market_text
@@ -217,7 +223,15 @@ with tab1:
 
                 st.markdown("### 🧾 材料")
                 st.caption("格式：單價×數量(世界)")
-                st.dataframe(details, use_container_width=True)
+                
+                # ✨ 新增：使用 Streamlit 的 ImageColumn 渲染表格圖片 ✨
+                st.dataframe(
+                    details, 
+                    use_container_width=True,
+                    column_config={
+                        "圖示": st.column_config.ImageColumn("圖示", width="small")
+                    }
+                )
 
         except Exception as e:
             st.error("API錯誤或網路不穩")
