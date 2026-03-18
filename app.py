@@ -110,7 +110,7 @@ with tab1:
             if not recipes:
                 st.warning(f"⚠️ 【{target_item}】為不可製作物品！")
                 
-                # ✨ 新功能：透過反向連結推測來源 ✨
+                # ✨ 來源推測 ✨
                 sources = []
                 if 'GilShopItem' in links: sources.append("💰 NPC 金幣商店販售")
                 if 'SpecialShop' in links: sources.append("🎟️ 特殊代幣 / 神典石兌換")
@@ -122,6 +122,15 @@ with tab1:
                 source_text = "、".join(sources) if sources else "❓ 怪物掉落 / 任務獎勵 / 寶箱或未知來源"
                 st.info(f"💡 **系統推測取得管道：** {source_text}")
 
+                # ✨ 百科傳送門 ✨
+                st.markdown("#### 📚 詳細掉落與商人位置查詢")
+                col_w1, col_w2 = st.columns(2)
+                with col_w1:
+                    st.link_button("📖 前往【灰機 Wiki】查看中文攻略", f"https://ff14.huijiwiki.com/wiki/物品:{target_item}", use_container_width=True)
+                with col_w2:
+                    st.link_button("🧰 前往【Garland Tools】查看地圖", f"https://www.garlandtools.org/db/#item/{item_id}", use_container_width=True)
+
+                # 市場前5筆
                 market = get_market_listings(item_id, selected_dc)
                 if market:
                     st.markdown("### 💰 市場前5筆")
@@ -133,12 +142,12 @@ with tab1:
             else:
                 r_data = requests.get(f"https://xivapi.com/Recipe/{recipes[0]}").json()
                 
-                # ✨ 新功能：抓取職業與等級 ✨
+                # ✨ 抓取職業與等級 ✨
                 job_id = r_data.get("ClassJob", {}).get("ID")
                 job_name = JOB_MAP.get(job_id, "未知職業")
                 base_level = r_data.get("RecipeLevelTable", {}).get("ClassJobLevel", "?")
                 stars = r_data.get("RecipeLevelTable", {}).get("Stars", 0)
-                star_str = "★" * stars if stars > 0 else "" # 如果是高難度星級配方，自動加上星星
+                star_str = "★" * stars if stars > 0 else ""
                 
                 st.success(f"🛠️ **製作條件：** {job_name} Lv.{base_level} {star_str}")
 
