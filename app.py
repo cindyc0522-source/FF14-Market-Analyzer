@@ -88,7 +88,7 @@ with tab1:
 
     with col_s1:
         selected_dc = st.selectbox("🌐 選擇大區：", ["陸行鳥", "莫古力", "貓區", "豆豆柴"])
-        keyword = st.text_input("📝 輸入關鍵字：", "雨衣")
+        keyword = st.text_input("📝 輸入關鍵字：", "古典大劍") # 換成一個有很多半成品的裝備來測試
 
     matches = [name for name in all_item_names if keyword in name]
 
@@ -126,7 +126,7 @@ with tab1:
             icon_path = item_res.get('Icon')
             icon_html = f"<img src='https://xivapi.com{icon_path}' width='36' style='vertical-align: middle; border-radius: 6px; margin-right: 8px;'>" if icon_path else ""
 
-            st.markdown(f"#### {icon_html}📚 【{target_item}】詳細資訊與位置查詢", unsafe_allow_html=True)
+            st.markdown(f"#### {icon_html}📚 【{target_item}】詳細資訊", unsafe_allow_html=True)
             col_w1, col_w2 = st.columns(2)
             with col_w1:
                 st.link_button(f"📖 前往【灰機 Wiki】查看中文攻略", f"https://ff14.huijiwiki.com/wiki/物品:{cn_target_item}", use_container_width=True)
@@ -182,11 +182,15 @@ with tab1:
                             "id": iid,
                             "name": item_id_to_name.get(iid, ing['Name']),
                             "amt": r_data.get(f"AmountIngredient{i}"),
-                            "icon": ing_icon
+                            "icon": ing_icon,
+                            "lowest_price": 0,
+                            "sub_details": [],
+                            "sub_total_cost": 0,
+                            "is_craftable": False
                         })
 
-                # ⚠️ 因為要去圖書館翻每個素材的來源，這裡會稍微多花 1~2 秒，是正常的喔！
-                with st.spinner("🛒 深入解析素材來源與市場價格中..."):
+                # ⚠️ 因為要進行第二層深度掃描，這會多花幾秒鐘
+                with st.spinner("🛒 深入解析素材來源、半成品配方與市場價格中...(約需5~10秒)"):
                     market = get_market_listings(item_id, selected_dc)
                     if market:
                         price = market[0]["單價"]
@@ -203,66 +207,110 @@ with tab1:
                         ing_market = get_market_listings(ing['id'], selected_dc, 3)
                         if ing_market:
                             lowest_price = ing_market[0]["單價"]
+                            ing['lowest_price'] = lowest_price
                             total_cost += lowest_price * ing['amt']
                             market_text = " / ".join([f"{m['單價']}×{m['數量']}({short_world(m['世界'])})" for m in ing_market])
                         else:
                             market_text = "無"
 
-                        # 2. 抓素材取得管道
+                        # 2. 抓素材取得管道 & 判斷是否為半成品
                         ing_source_text = "❓ 未知"
                         try:
                             ing_item_res = requests.get(f"https://xivapi.com/Item/{ing['id']}").json()
                             i_links = ing_item_res.get('GameContentLinks', {})
                             i_sources = []
                             if 'GilShopItem' in i_links: i_sources.append("💰 NPC")
-                            if 'SpecialShop' in i_links: i_sources.append("🎟️ 代幣")
-                            if 'InstanceContent' in i_links: i_sources.append("⚔️ 副本")
                             if 'GatheringItem' in i_links: i_sources.append("⛏️ 採集")
-                            if 'FishParameter' in i_links or 'SpearfishingItem' in i_links: i_sources.append("🎣 釣魚")
-                            if 'TreasureHuntRank' in i_links: i_sources.append("🗺️ 藏寶圖")
-                            if 'Recipe' in i_links: i_sources.append("🛠️ 製作")
+                            
+                            # ✨ 判斷是否可以製作 (抓出子配方)
+                            sub_recipes_ids = i_links.get('Recipe', {}).get('ItemResult', [])
+                            if sub_recipes_ids:
+                                i_sources.append("🛠️ 製作")
+                                ing['is_craftable'] = True
+                                if not isinstance(sub_recipes_ids, list):
+                                    sub_recipes_ids = [sub_recipes_ids]
+                                
+                                # ✨ 第二層深度掃描：抓取半成品的配方和底層材料價格
+                                sub_r_data = requests.get(f"https://xivapi.com/Recipe/{sub_recipes_ids[0]}").json()
+                                sub_output_amt = sub_r_data.get("AmountResult", 1) # 半成品一次搓幾個出來
+                                
+                                for j in range(10):
+                                    sub_ing = sub_r_data.get(f"ItemIngredient{j}")
+                                    if sub_ing:
+                                        sub_iid = sub_ing['ID']
+                                        sub_amt = sub_r_data.get(f"AmountIngredient{j}")
+                                        sub_name = item_id_to_name.get(sub_iid, sub_ing['Name'])
+                                        
+                                        sub_market = get_market_listings(sub_iid, selected_dc, 1)
+                                        if sub_market:
+                                            sub_price = sub_market[0]["單價"]
+                                            sub_world = short_world(sub_market[0]["世界"])
+                                            ing['sub_total_cost'] += sub_price * sub_amt
+                                            sub_market_text = f"{sub_price} G ({sub_world})"
+                                        else:
+                                            sub_market_text = "無"
+                                            
+                                        ing['sub_details'].append({
+                                            "底層材料": sub_name,
+                                            "單次需求": sub_amt,
+                                            "最低單價": sub_market_text
+                                        })
+                                # 換算成單個半成品的成本
+                                ing['sub_total_cost'] = int(ing['sub_total_cost'] / sub_output_amt)
+
                             ing_source_text = "、".join(i_sources) if i_sources else "❓ 未知"
                         except:
                             pass
-
-                        # 3. 準備素材的 Wiki 連結
-                        ing_cn_name = id_to_cn_name.get(ing['id'])
-                        if not ing_cn_name:
-                            ing_cn_name = zhconv.convert(ing['name'], 'zh-cn')
-                        wiki_url = f"https://ff14.huijiwiki.com/wiki/物品:{ing_cn_name}"
 
                         details.append({
                             "圖示": ing['icon'],
                             "材料": ing['name'],
                             "需求": ing['amt'],
-                            "取得管道": ing_source_text, # 👈 新增的管道欄位
+                            "取得管道": ing_source_text,
                             "市場前3筆": market_text,
-                            "百科": wiki_url             # 👈 新增的點擊連結
                         })
 
                     profit = price - total_cost
 
+                # === 頂部總結儀表板 ===
                 c1, c2, c3 = st.columns(3)
                 c1.metric("成品單價", f"{price} G ({short_world(world)})")
-                c2.metric("材料成本", f"{total_cost} G")
-                c3.metric("預期利潤", f"{profit} G")
+                c2.metric("材料全買成本", f"{total_cost} G")
+                c3.metric("最低預期利潤", f"{profit} G")
 
-                st.markdown("### 💰 成品市場")
-                if market:
-                    st.dataframe(market, use_container_width=True)
-
-                st.markdown("### 🧾 製作材料清單")
-                st.caption("💡 提示：點擊右側的『📖 查看』即可跳轉至百科看詳細座標！")
-                
-                # ✨ 新增：讓表格渲染圖片與超連結 ✨
+                st.markdown("### 🧾 製作材料清單 (主配方)")
                 st.dataframe(
                     details, 
                     use_container_width=True,
                     column_config={
-                        "圖示": st.column_config.ImageColumn("圖示", width="small"),
-                        "百科": st.column_config.LinkColumn("百科", display_text="📖 查看")
+                        "圖示": st.column_config.ImageColumn("圖示", width="small")
                     }
                 )
+
+                # ✨ 全新區塊：半成品自製 vs 購買 決策系統 ✨
+                st.markdown("---")
+                st.markdown("### 🛠️ 半成品評估：自製 vs 購買")
+                has_sub_crafts = False
+                
+                for ing in ingredients:
+                    if ing['is_craftable'] and ing['sub_details']:
+                        has_sub_crafts = True
+                        buy_price = ing['lowest_price']
+                        craft_price = ing['sub_total_cost']
+                        
+                        if buy_price == 0:
+                            status_msg = "⚠️ 市場缺貨，只能自己做！"
+                        elif craft_price < buy_price:
+                            status_msg = f"✅ 自己做更省 (省 {buy_price - craft_price} G)"
+                        else:
+                            status_msg = f"💰 直接買更省 (省 {craft_price - buy_price} G)"
+                            
+                        # 這就是你想要的「隱藏表格 (Expander)」
+                        with st.expander(f"📦 {ing['name']} ｜ 市場單價: {buy_price} G ｜ 自製成本: {craft_price} G ➡️ {status_msg}"):
+                            st.dataframe(ing['sub_details'], use_container_width=True, hide_index=True)
+                            
+                if not has_sub_crafts:
+                    st.info("此配方沒有需要進一步製作的半成品素材，或底層資料庫讀取中。")
 
         except Exception as e:
             st.error("API錯誤或網路不穩")
