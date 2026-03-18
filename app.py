@@ -34,23 +34,15 @@ def load_data():
 
     name_to_id = {}
     id_to_name = {}
-    id_to_cn_name = {} # 👈 新增：用來記憶官方的簡體中文名字
-
     for item_id_str, item_info in raw_data.items():
         if isinstance(item_info, dict) and 'tw' in item_info:
             tw_name = item_info['tw']
             num_id = int(item_id_str)
             name_to_id[tw_name] = num_id
             id_to_name[num_id] = tw_name
-            
-            # 嘗試抓取官方簡中名 (防呆機制：不同字典可能用不同的縮寫)
-            cn_name = item_info.get('cn') or item_info.get('chs') or item_info.get('zh')
-            if cn_name:
-                id_to_cn_name[num_id] = cn_name
-                
-    return name_to_id, id_to_name, id_to_cn_name
+    return name_to_id, id_to_name
 
-name_to_item_id, item_id_to_name, id_to_cn_name = load_data()
+name_to_item_id, item_id_to_name = load_data()
 all_item_names = list(name_to_item_id.keys())
 
 # --- 查市場前N筆 ---
@@ -89,7 +81,7 @@ with tab1:
 
     with col_s1:
         selected_dc = st.selectbox("🌐 選擇大區：", ["陸行鳥", "莫古力", "貓區", "豆豆柴"])
-        keyword = st.text_input("📝 輸入關鍵字：", "小黑夸爾") # 幫你把預設字換成了這隻調皮的小貓
+        keyword = st.text_input("📝 輸入關鍵字：", "小黑夸爾")
 
     matches = [name for name in all_item_names if keyword in name]
 
@@ -107,18 +99,26 @@ with tab1:
     if target_item and st.button("啟動分析 🚀"):
         item_id = name_to_item_id[target_item]
         
-        # 👇 終極修復：優先找大辭典裡的官方簡中名，找不到才用翻譯蒟蒻 👇
-        official_cn_name = id_to_cn_name.get(item_id)
+        # 👇 終極修復：向國服專屬資料庫 (Cafemaker) 請求最精準的官方簡中名 👇
+        try:
+            cn_api_url = f"https://cafemaker.wakingsands.com/Item/{item_id}?columns=Name"
+            cn_res = requests.get(cn_api_url, timeout=3).json()
+            official_cn_name = cn_res.get("Name")
+        except:
+            official_cn_name = None
+
         if official_cn_name:
             cn_target_item = official_cn_name
+            # ✨ 如果成功抓到真名，網頁右下角會跳出小通知！ ✨
+            st.toast(f"✅ 已成功轉換為國服真名：{cn_target_item}", icon="🇨🇳")
         else:
+            # 如果國服 API 剛好維修沒抓到，再用翻譯蒟蒻當備用方案硬翻
             cn_target_item = zhconv.convert(target_item, 'zh-cn')
 
         st.markdown(f"#### 📚 【{target_item}】詳細資訊與位置查詢")
         col_w1, col_w2 = st.columns(2)
         with col_w1:
-            # 這裡送出去的就會是完美的官方簡中名了！
-            st.link_button("📖 前往【灰機 Wiki】查看中文攻略", f"https://ff14.huijiwiki.com/wiki/物品:{cn_target_item}", use_container_width=True)
+            st.link_button(f"📖 前往【灰機 Wiki】查看中文攻略", f"https://ff14.huijiwiki.com/wiki/物品:{cn_target_item}", use_container_width=True)
         with col_w2:
             st.link_button("🧰 前往【Garland Tools】查看地圖", f"https://www.garlandtools.org/db/#item/{item_id}", use_container_width=True)
         
