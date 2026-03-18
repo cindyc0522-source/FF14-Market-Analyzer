@@ -34,15 +34,22 @@ def load_data():
 
     name_to_id = {}
     id_to_name = {}
+    id_to_cn_name = {}
+
     for item_id_str, item_info in raw_data.items():
         if isinstance(item_info, dict) and 'tw' in item_info:
             tw_name = item_info['tw']
             num_id = int(item_id_str)
             name_to_id[tw_name] = num_id
             id_to_name[num_id] = tw_name
-    return name_to_id, id_to_name
+            
+            cn_name = item_info.get('cn') or item_info.get('chs') or item_info.get('zh')
+            if cn_name:
+                id_to_cn_name[num_id] = cn_name
+                
+    return name_to_id, id_to_name, id_to_cn_name
 
-name_to_item_id, item_id_to_name = load_data()
+name_to_item_id, item_id_to_name, id_to_cn_name = load_data()
 all_item_names = list(name_to_item_id.keys())
 
 # --- 查市場前N筆 ---
@@ -99,7 +106,6 @@ with tab1:
     if target_item and st.button("啟動分析 🚀"):
         item_id = name_to_item_id[target_item]
         
-        # 抓取國服真名 (防地雷)
         try:
             cn_api_url = f"https://cafemaker.wakingsands.com/Item/{item_id}?columns=Name"
             cn_res = requests.get(cn_api_url, timeout=3).json()
@@ -113,12 +119,10 @@ with tab1:
             cn_target_item = zhconv.convert(target_item, 'zh-cn')
 
         try:
-            # 📚 連線圖書館獲取所有細節
             item_res = requests.get(f"https://xivapi.com/Item/{item_id}").json()
             links = item_res.get('GameContentLinks', {})
             recipes = links.get('Recipe', {}).get('ItemResult', [])
             
-            # ✨ 新增：抓取主要物品的圖示 ✨
             icon_path = item_res.get('Icon')
             icon_html = f"<img src='https://xivapi.com{icon_path}' width='36' style='vertical-align: middle; border-radius: 6px; margin-right: 8px;'>" if icon_path else ""
 
@@ -173,7 +177,6 @@ with tab1:
                     ing = r_data.get(f"ItemIngredient{i}")
                     if ing:
                         iid = ing['ID']
-                        # ✨ 新增：抓取材料的圖示 ✨
                         ing_icon = f"https://xivapi.com{ing['Icon']}" if 'Icon' in ing else None
                         ingredients.append({
                             "id": iid,
@@ -182,7 +185,8 @@ with tab1:
                             "icon": ing_icon
                         })
 
-                with st.spinner("🛒 讀取市場中..."):
+                # ⚠️ 因為要去圖書館翻每個素材的來源，這裡會稍微多花 1~2 秒，是正常的喔！
+                with st.spinner("🛒 深入解析素材來源與市場價格中..."):
                     market = get_market_listings(item_id, selected_dc)
                     if market:
                         price = market[0]["單價"]
@@ -195,6 +199,7 @@ with tab1:
                     details = []
 
                     for ing in ingredients:
+                        # 1. 抓市場價格
                         ing_market = get_market_listings(ing['id'], selected_dc, 3)
                         if ing_market:
                             lowest_price = ing_market[0]["單價"]
@@ -203,11 +208,36 @@ with tab1:
                         else:
                             market_text = "無"
 
+                        # 2. 抓素材取得管道
+                        ing_source_text = "❓ 未知"
+                        try:
+                            ing_item_res = requests.get(f"https://xivapi.com/Item/{ing['id']}").json()
+                            i_links = ing_item_res.get('GameContentLinks', {})
+                            i_sources = []
+                            if 'GilShopItem' in i_links: i_sources.append("💰 NPC")
+                            if 'SpecialShop' in i_links: i_sources.append("🎟️ 代幣")
+                            if 'InstanceContent' in i_links: i_sources.append("⚔️ 副本")
+                            if 'GatheringItem' in i_links: i_sources.append("⛏️ 採集")
+                            if 'FishParameter' in i_links or 'SpearfishingItem' in i_links: i_sources.append("🎣 釣魚")
+                            if 'TreasureHuntRank' in i_links: i_sources.append("🗺️ 藏寶圖")
+                            if 'Recipe' in i_links: i_sources.append("🛠️ 製作")
+                            ing_source_text = "、".join(i_sources) if i_sources else "❓ 未知"
+                        except:
+                            pass
+
+                        # 3. 準備素材的 Wiki 連結
+                        ing_cn_name = id_to_cn_name.get(ing['id'])
+                        if not ing_cn_name:
+                            ing_cn_name = zhconv.convert(ing['name'], 'zh-cn')
+                        wiki_url = f"https://ff14.huijiwiki.com/wiki/物品:{ing_cn_name}"
+
                         details.append({
-                            "圖示": ing['icon'], # 👈 把圖示放進表格資料裡
+                            "圖示": ing['icon'],
                             "材料": ing['name'],
                             "需求": ing['amt'],
-                            "市場前3筆": market_text
+                            "取得管道": ing_source_text, # 👈 新增的管道欄位
+                            "市場前3筆": market_text,
+                            "百科": wiki_url             # 👈 新增的點擊連結
                         })
 
                     profit = price - total_cost
@@ -221,15 +251,16 @@ with tab1:
                 if market:
                     st.dataframe(market, use_container_width=True)
 
-                st.markdown("### 🧾 材料")
-                st.caption("格式：單價×數量(世界)")
+                st.markdown("### 🧾 製作材料清單")
+                st.caption("💡 提示：點擊右側的『📖 查看』即可跳轉至百科看詳細座標！")
                 
-                # ✨ 新增：使用 Streamlit 的 ImageColumn 渲染表格圖片 ✨
+                # ✨ 新增：讓表格渲染圖片與超連結 ✨
                 st.dataframe(
                     details, 
                     use_container_width=True,
                     column_config={
-                        "圖示": st.column_config.ImageColumn("圖示", width="small")
+                        "圖示": st.column_config.ImageColumn("圖示", width="small"),
+                        "百科": st.column_config.LinkColumn("百科", display_text="📖 查看")
                     }
                 )
 
