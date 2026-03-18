@@ -85,7 +85,7 @@ tab1, tab2 = st.tabs(["🔍 單品深度分析", "📈 市場海選排行榜"])
 with tab1:
     st.markdown("### 🔍 裝備關鍵字搜尋")
     
-    # 🎯 隱藏大區選單，將後台預設值寫死為「陸行鳥」大區 (若想換大區，直接改這行即可)
+    # 🎯 隱藏大區選單，將後台預設值寫死為「陸行鳥」大區
     selected_dc = "陸行鳥"
 
     col_s1, col_s2 = st.columns([1, 2])
@@ -157,10 +157,10 @@ with tab1:
 
                 market = get_market_listings(item_id, selected_dc)
                 if market:
-                    st.markdown("### 💰 市場前5筆")
+                    st.markdown("### 💰 成品跨服市場前5筆")
                     st.dataframe(market, use_container_width=True)
                 else:
-                    st.warning("無交易資料")
+                    st.warning("目前市場無人拋售")
 
             # ===== 可製作 =====
             else:
@@ -268,10 +268,18 @@ with tab1:
 
                     profit = price - total_cost
 
+                # === 頂部總結儀表板 ===
                 c1, c2, c3 = st.columns(3)
                 c1.metric("成品單價", f"{price} G ({short_world(world)})")
                 c2.metric("材料全買成本", f"{total_cost} G")
                 c3.metric("最低預期利潤", f"{profit} G")
+
+                # 👇 就是這裡！把不小心弄丟的成品市場表格補回來了 👇
+                st.markdown("### 💰 成品跨服市場前5筆")
+                if market:
+                    st.dataframe(market, use_container_width=True)
+                else:
+                    st.warning("目前市場無人拋售")
 
                 st.markdown("### 🧾 製作材料清單 (主配方)")
                 st.dataframe(
