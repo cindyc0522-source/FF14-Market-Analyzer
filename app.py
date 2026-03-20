@@ -4,11 +4,11 @@ import msgpack
 import os
 import zhconv
 import time
-import math # 👈 新增：用來做「無條件進位」的數學模組
+import math
 
 # --- 網頁設定 ---
-st.set_page_config(page_title="FF14 繁中服市場分析機 V5.0", page_icon="💰", layout="wide")
-st.title("🌟 FF14 繁中服市場分析機 (V5.0 理符大亨版)")
+st.set_page_config(page_title="FF14 繁中服市場分析機 V5.1", page_icon="💰", layout="wide")
+st.title("🌟 FF14 繁中服市場分析機 (V5.1 理符大亨版)")
 
 # --- 職業 ID 翻譯蒟蒻 ---
 JOB_MAP = {
@@ -113,7 +113,6 @@ def get_item_market_data(item_id, dc_name, hq_prefer=False):
     except:
         return 0, "錯誤", False, 0, []
 
-# ✨ 擴增為三個分頁
 tab1, tab2, tab3 = st.tabs(["🔍 單品深度分析", "📈 市場海選排行榜", "📜 理符與批量計算機"])
 
 # =============================
@@ -432,11 +431,11 @@ with tab2:
                 st.warning("沒有找到任何有效物品。")
 
 # =============================
-# 分頁三：📜 理符任務與批量生產計算機 (V5.0 全新功能)
+# 分頁三：📜 理符任務與批量生產計算機
 # =============================
 with tab3:
     st.markdown("### 📜 批量生產與理符精算中心")
-    st.caption("💡 專為量產型光之工匠設計！會自動根據「單次配方產出量」來算出最精準的材料採購清單。")
+    st.caption("💡 專為量產型光之工匠設計！自動換算總金幣與採購清單。")
 
     dc_leve = "陸行鳥"
 
@@ -456,15 +455,19 @@ with tab3:
         else:
             leve_target = None
 
+    # 👇 這裡改成單價輸入了！
     st.markdown("#### ⚙️ 產線目標設定")
     col_i1, col_i2 = st.columns(2)
     with col_i1:
         target_qty = st.number_input("📦 預計需要【總共幾個】成品？：", min_value=1, value=30, step=1)
     with col_i2:
-        total_reward = st.number_input("💰 完成後預估可獲得【總金幣】(G)：", min_value=0, value=50000, step=1000)
+        single_reward = st.number_input("💰 【單個】成品預估可獲得金幣 (G)：", min_value=0, value=1500, step=100)
 
     if leve_target and st.button("啟動批量精算 🚀", type="primary", key="leve_btn"):
         item_id = name_to_item_id[leve_target]
+        
+        # 💡 自動幫你把單價乘上總數量，算出總營收！
+        total_reward = single_reward * target_qty
         
         try:
             item_res = requests.get(f"https://xivapi.com/Item/{item_id}").json()
@@ -476,7 +479,7 @@ with tab3:
                 price, world, _, _, _ = get_item_market_data(item_id, dc_leve, hq_prefer=True)
                 buy_cost = price * target_qty
                 net = total_reward - buy_cost
-                st.info(f"以目前最低價 {price} G 估算，買齊 {target_qty} 個需要花費 **{buy_cost} G**。最終淨利潤為 **{net} G**。")
+                st.info(f"以目前最低價 {price} G 估算，買齊 {target_qty} 個需要花費 **{buy_cost} G**。總收入為 **{total_reward} G**，最終淨利潤為 **{net} G**。")
             else:
                 if isinstance(recipes, list):
                     recipe_id = recipes[0]
@@ -485,10 +488,8 @@ with tab3:
 
                 r_data = requests.get(f"https://xivapi.com/Recipe/{recipe_id}").json()
                 
-                # ✨ 核心防呆：抓取配方「一次產出多少個」
                 yield_per_craft = r_data.get("AmountResult", 1)
                 
-                # 計算到底要按幾次「製作」
                 craft_times = math.ceil(target_qty / yield_per_craft)
                 actual_yield = craft_times * yield_per_craft
 
@@ -538,7 +539,8 @@ with tab3:
 
                     st.markdown("---")
                     c1, c2, c3 = st.columns(3)
-                    c1.metric("預估總收入", f"{total_reward} G")
+                    # 這裡也會秀出你的單價和換算結果！
+                    c1.metric("預估總收入", f"{total_reward} G", f"單個 {single_reward} G") 
                     c2.metric("材料買齊總成本", f"{total_cost} G")
                     c3.metric("✨ 最終淨利潤", f"{net_profit} G")
 
