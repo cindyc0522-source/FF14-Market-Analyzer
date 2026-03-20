@@ -4,10 +4,11 @@ import msgpack
 import os
 import zhconv
 import time
+import math # 👈 新增：用來做「無條件進位」的數學模組
 
 # --- 網頁設定 ---
-st.set_page_config(page_title="FF14 繁中服市場分析機 V4.0", page_icon="💰", layout="wide")
-st.title("🌟 FF14 繁中服市場分析機 (V4.0 財富密碼版)")
+st.set_page_config(page_title="FF14 繁中服市場分析機 V5.0", page_icon="💰", layout="wide")
+st.title("🌟 FF14 繁中服市場分析機 (V5.0 理符大亨版)")
 
 # --- 職業 ID 翻譯蒟蒻 ---
 JOB_MAP = {
@@ -72,23 +73,18 @@ def get_market_listings(item_id, dc_name, limit=5):
     except:
         return []
 
-# --- 🌟 V4.0 核心引擎：深度市場數據 (價格、HQ、7日銷量) ---
+# --- 🌟 核心引擎：深度市場數據 ---
 def get_item_market_data(item_id, dc_name, hq_prefer=False):
-    # entriesWithin=604800 代表抓取過去 7 天 (604800秒) 的成交紀錄
     url = f"https://universalis.app/api/v2/{dc_name}/{item_id}?listings=10&entriesWithin=604800"
     try:
         res = requests.get(url).json()
-        
-        # 1. 計算 7 日銷量
         sales_volume = len(res.get('recentHistory', []))
         
-        # 2. 尋找最低價 (判定 HQ)
         price, world, is_hq = 0, "無", False
         listings_data = []
         listings = res.get('listings', [])
         
         if listings:
-            # 整理前 5 筆顯示用的表格資料
             for l in listings[:5]:
                 listings_data.append({
                     "HQ": "✔️" if l.get('hq') else "",
@@ -98,7 +94,6 @@ def get_item_market_data(item_id, dc_name, hq_prefer=False):
                     "世界": short_world(l.get("worldName", "本服"))
                 })
                 
-            # 優先尋找 HQ 價格
             if hq_prefer:
                 hq_list = [l for l in listings if l.get('hq') == True]
                 if hq_list:
@@ -118,14 +113,15 @@ def get_item_market_data(item_id, dc_name, hq_prefer=False):
     except:
         return 0, "錯誤", False, 0, []
 
-tab1, tab2 = st.tabs(["🔍 單品深度分析", "📈 市場海選排行榜"])
+# ✨ 擴增為三個分頁
+tab1, tab2, tab3 = st.tabs(["🔍 單品深度分析", "📈 市場海選排行榜", "📜 理符與批量計算機"])
 
 # =============================
 # 分頁一：單品深度分析
 # =============================
 with tab1:
     st.markdown("### 🔍 裝備關鍵字搜尋")
-    selected_dc = "陸行鳥" # 隱藏的大區設定
+    selected_dc = "陸行鳥"
 
     col_s1, col_s2 = st.columns([1, 2])
     with col_s1:
@@ -175,8 +171,6 @@ with tab1:
             if not isinstance(recipes, list):
                 recipes = [recipes]
 
-            # ===== 獲取市場大數據 (含銷量、HQ) =====
-            # 如果是裝備/藥水，我們優先看 HQ 價格
             needs_hq = len(recipes) > 0 
             price, world, is_hq, sales_volume, market_listings = get_item_market_data(item_id, selected_dc, hq_prefer=needs_hq)
 
@@ -297,11 +291,9 @@ with tab1:
                             "市場前3筆": market_text,
                         })
 
-                    # ✨ V4.0 稅後淨利計算公式 (扣除 5%)
                     tax = int(price * 0.05)
                     profit = int(price * 0.95) - total_cost
 
-                # === 頂部總結儀表板 (V4.0 加強版) ===
                 c1, c2, c3, c4 = st.columns(4)
                 hq_tag = " ✨HQ" if is_hq else ""
                 c1.metric(f"成品最低價{hq_tag}", f"{price} G", f"({world})")
@@ -351,13 +343,13 @@ with tab1:
             st.error("API錯誤或網路不穩")
 
 # =============================
-# 分頁二：市場海選排行榜 (V4.0 復活版)
+# 分頁二：市場海選排行榜
 # =============================
 with tab2:
     st.markdown("### 📈 批次掃描海選排行榜")
     st.caption("💡 系統會自動計算 **稅後淨利** 與 **7日銷量**，並幫您由高到低排序，找出今晚的財富密碼！")
     
-    dc = "陸行鳥" # 隱藏的大區設定
+    dc = "陸行鳥"
     
     with st.form("batch_form"):
         default_items = "雨衣\n顯貴短上衣\n古典大劍\n剛力之幻藥G8"
@@ -374,12 +366,10 @@ with tab2:
                     item_id = name_to_item_id[name]
                     
                     try:
-                        # 1. 檢查是否可製作並獲取配方
                         item_res = requests.get(f"https://xivapi.com/Item/{item_id}").json()
                         recipes = item_res.get('GameContentLinks', {}).get('Recipe', {}).get('ItemResult', [])
                         
                         if not recipes:
-                            # 不可製作的物品，只抓價格和銷量
                             price, world, is_hq, vol, _ = get_item_market_data(item_id, dc, hq_prefer=False)
                             leaderboard.append({
                                 "物品名稱": name,
@@ -390,14 +380,11 @@ with tab2:
                                 "HQ狀態": "✔️" if is_hq else "-"
                             })
                         else:
-                            # 可製作物品：算成本與利潤
                             if not isinstance(recipes, list):
                                 recipes = [recipes]
                             
-                            # 獲取成品大數據 (優先找 HQ)
                             price, world, is_hq, vol, _ = get_item_market_data(item_id, dc, hq_prefer=True)
                             
-                            # 獲取配方材料成本
                             r_data = requests.get(f"https://xivapi.com/Recipe/{recipes[0]}").json()
                             total_cost = 0
                             
@@ -410,7 +397,6 @@ with tab2:
                                     if ing_market:
                                         total_cost += ing_market[0]["單價"] * ing_amt
                             
-                            # V4.0 稅後淨利公式
                             profit = int(price * 0.95) - total_cost
                             
                             leaderboard.append({
@@ -423,13 +409,11 @@ with tab2:
                             })
                             
                     except Exception as e:
-                        pass # 忽略錯誤，繼續掃描下一個
+                        pass
                         
-                # 更新進度條
                 pb.progress((i + 1) / len(items))
-                time.sleep(0.1) # 稍微休息防 API 擋人
+                time.sleep(0.1)
             
-            # 排序與顯示：把不可製作的放後面，可製作的依利潤排序
             if leaderboard:
                 craftable = [x for x in leaderboard if isinstance(x["💰 稅後淨利 (G)"], int)]
                 uncraftable = [x for x in leaderboard if not isinstance(x["💰 稅後淨利 (G)"], int)]
@@ -437,14 +421,135 @@ with tab2:
                 craftable.sort(key=lambda x: x["💰 稅後淨利 (G)"], reverse=True)
                 final_board = craftable + uncraftable
                 
-                # 加上排名
                 for idx, row in enumerate(final_board):
                     row["排名"] = idx + 1
                     
-                # 重新調整欄位順序讓排名在最前面
                 columns_order = ["排名", "物品名稱", "🔥 7日銷量", "💰 稅後淨利 (G)", "市場售價 (G)", "材料成本 (G)", "HQ狀態"]
                 
                 st.success("🎉 批次掃描完成！今晚的財富密碼排行榜出爐：")
                 st.dataframe(final_board, use_container_width=True, hide_index=True, column_order=columns_order)
             else:
                 st.warning("沒有找到任何有效物品。")
+
+# =============================
+# 分頁三：📜 理符任務與批量生產計算機 (V5.0 全新功能)
+# =============================
+with tab3:
+    st.markdown("### 📜 批量生產與理符精算中心")
+    st.caption("💡 專為量產型光之工匠設計！會自動根據「單次配方產出量」來算出最精準的材料採購清單。")
+
+    dc_leve = "陸行鳥"
+
+    col_l1, col_l2 = st.columns([1, 2])
+    with col_l1:
+        leve_keyword = st.text_input("📝 輸入目標道具：", "巨匠藥水", key="leve_kw")
+
+    leve_matches = [name for name in all_item_names if leve_keyword in name]
+
+    with col_l2:
+        if leve_keyword:
+            if leve_matches:
+                leve_target = st.selectbox(f"🎯 找到 {len(leve_matches)} 個結果：", leve_matches, key="leve_target")
+            else:
+                st.error("❌ 找不到道具")
+                leve_target = None
+        else:
+            leve_target = None
+
+    st.markdown("#### ⚙️ 產線目標設定")
+    col_i1, col_i2 = st.columns(2)
+    with col_i1:
+        target_qty = st.number_input("📦 預計需要【總共幾個】成品？：", min_value=1, value=30, step=1)
+    with col_i2:
+        total_reward = st.number_input("💰 完成後預估可獲得【總金幣】(G)：", min_value=0, value=50000, step=1000)
+
+    if leve_target and st.button("啟動批量精算 🚀", type="primary", key="leve_btn"):
+        item_id = name_to_item_id[leve_target]
+        
+        try:
+            item_res = requests.get(f"https://xivapi.com/Item/{item_id}").json()
+            links = item_res.get('GameContentLinks', {})
+            recipes = links.get('Recipe', {}).get('ItemResult', [])
+
+            if not recipes:
+                st.warning(f"⚠️ 【{leve_target}】無法製作！你只能直接去交易板拉貨了。")
+                price, world, _, _, _ = get_item_market_data(item_id, dc_leve, hq_prefer=True)
+                buy_cost = price * target_qty
+                net = total_reward - buy_cost
+                st.info(f"以目前最低價 {price} G 估算，買齊 {target_qty} 個需要花費 **{buy_cost} G**。最終淨利潤為 **{net} G**。")
+            else:
+                if isinstance(recipes, list):
+                    recipe_id = recipes[0]
+                else:
+                    recipe_id = recipes
+
+                r_data = requests.get(f"https://xivapi.com/Recipe/{recipe_id}").json()
+                
+                # ✨ 核心防呆：抓取配方「一次產出多少個」
+                yield_per_craft = r_data.get("AmountResult", 1)
+                
+                # 計算到底要按幾次「製作」
+                craft_times = math.ceil(target_qty / yield_per_craft)
+                actual_yield = craft_times * yield_per_craft
+
+                st.success(f"🛠️ **生產線報告：** 這張配方每次會產出 **{yield_per_craft}** 個。為了達成目標 {target_qty} 個，你總共需要執行 **{craft_times}** 次製作（最終會產出 {actual_yield} 個，可以留作備用）。")
+
+                ingredients = []
+                for i in range(10):
+                    ing = r_data.get(f"ItemIngredient{i}")
+                    if ing:
+                        iid = ing['ID']
+                        base_amt = r_data.get(f"AmountIngredient{i}")
+                        total_amt_needed = base_amt * craft_times
+                        ingredients.append({
+                            "id": iid,
+                            "name": item_id_to_name.get(iid, ing['Name']),
+                            "amt_per_craft": base_amt,
+                            "total_needed": total_amt_needed,
+                            "icon": f"https://xivapi.com{ing['Icon']}" if 'Icon' in ing else None
+                        })
+
+                with st.spinner("🛒 正在精算巨量採購成本..."):
+                    total_cost = 0
+                    details = []
+                    
+                    for ing in ingredients:
+                        ing_market = get_market_listings(ing['id'], dc_leve, limit=3)
+                        if ing_market:
+                            lowest_price = ing_market[0]["單價"]
+                            ing_cost = lowest_price * ing['total_needed']
+                            total_cost += ing_cost
+                            market_text = " / ".join([f"{m['單價']}×{m['數量']}({m['世界']})" for m in ing_market])
+                        else:
+                            lowest_price = 0
+                            ing_cost = 0
+                            market_text = "無"
+
+                        details.append({
+                            "圖示": ing['icon'],
+                            "材料名稱": ing['name'],
+                            "單次配方需求": ing['amt_per_craft'],
+                            "🛒 總共需要買": ing['total_needed'],
+                            "市場最低單價": lowest_price,
+                            "該項總成本 (G)": ing_cost,
+                        })
+
+                    net_profit = total_reward - total_cost
+
+                    st.markdown("---")
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("預估總收入", f"{total_reward} G")
+                    c2.metric("材料買齊總成本", f"{total_cost} G")
+                    c3.metric("✨ 最終淨利潤", f"{net_profit} G")
+
+                    st.markdown("### 🧾 巨量採購清單")
+                    st.dataframe(
+                        details,
+                        use_container_width=True,
+                        column_config={
+                            "圖示": st.column_config.ImageColumn("圖示", width="small")
+                        }
+                    )
+
+        except Exception as e:
+            st.error("API錯誤或網路不穩")
